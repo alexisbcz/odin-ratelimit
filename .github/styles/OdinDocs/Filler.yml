@@ -1,0 +1,13 @@
+# Words that talk down to the reader or add nothing.
+extends: existence
+message: "Remove '%s': it adds nothing and can make the reader feel slow."
+link: https://github.com/alexisbcz/odin-standards/blob/main/STANDARDS.md#prose-style
+level: error
+ignorecase: true
+tokens:
+  - simply
+  - just
+  - easy
+  - easily
+  - obviously
+  - of course

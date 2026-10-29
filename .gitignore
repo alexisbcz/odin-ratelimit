@@ -1,0 +1,25 @@
+# Build output
+*.bin
+*.exe
+*.pdb
+*.dSYM/
+*.o
+*.obj
+/build/
+
+# Odin writes the executable next to where you ran it
+/basic
+/tests.bin
+/ratelimit
+/odin-ratelimit
+
+# Vale packages downloaded by `vale sync`; keep the house style and vocabulary
+.github/styles/*
+!.github/styles/OdinDocs/
+!.github/styles/config/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

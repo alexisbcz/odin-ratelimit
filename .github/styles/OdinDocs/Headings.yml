@@ -1,0 +1,30 @@
+# Headings use sentence case: capitalize the first word and proper nouns only.
+# The h1 is skipped because library READMEs start with the lowercase package name.
+extends: capitalization
+message: "Use sentence case for the heading '%s'."
+link: https://github.com/alexisbcz/odin-standards/blob/main/STANDARDS.md#prose-style
+level: error
+scope:
+  - heading.h2
+  - heading.h3
+  - heading.h4
+  - heading.h5
+  - heading.h6
+match: $sentence
+indicators:
+  - ":"
+exceptions:
+  - Actions
+  - API
+  - APIs
+  - CI
+  - Conventional Commits
+  - Go
+  - GitHub
+  - GitHub Actions
+  - Keep a Changelog
+  - MIT
+  - Odin
+  - Swift
+  - TypeScript
+  - Vale

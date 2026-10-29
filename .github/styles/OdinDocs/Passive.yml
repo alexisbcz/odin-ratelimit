@@ -1,0 +1,21 @@
+# Prefer active voice. A warning, not an error: some passive sentences read better.
+extends: existence
+message: "'%s' looks like passive voice. Prefer active voice where practical."
+link: https://github.com/alexisbcz/odin-standards/blob/main/STANDARDS.md#prose-style
+level: suggestion
+ignorecase: true
+raw:
+  - \b(am|are|were|being|is|been|was|be)\b\s*
+tokens:
+  - '[\w]+ed'
+  - built
+  - done
+  - found
+  - given
+  - known
+  - made
+  - run
+  - seen
+  - shown
+  - taken
+  - written

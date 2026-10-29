@@ -1,0 +1,9 @@
+# Calm prose: no exclamation marks.
+extends: existence
+message: "Don't use exclamation marks in prose."
+link: https://github.com/alexisbcz/odin-standards/blob/main/STANDARDS.md#prose-style
+level: error
+nonword: true
+scope: sentence
+tokens:
+  - '\w+!(?=\s|$)'

@@ -1,0 +1,12 @@
+# Spell out Latin abbreviations; many readers are not native English speakers.
+extends: substitution
+message: "Use '%s' instead of '%s'."
+link: https://github.com/alexisbcz/odin-standards/blob/main/STANDARDS.md#prose-style
+level: error
+ignorecase: true
+nonword: true
+swap:
+  '\be\.g\.': for example
+  '\bi\.e\.': that is
+  '\betc\.': and so on
+  '\bvs\.': versus
