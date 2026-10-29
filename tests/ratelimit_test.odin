@@ -912,3 +912,57 @@ test_sync_limiter_rejects_bad_config :: proc(t: ^testing.T) {
 	k: ratelimit.Sync_Keyed_Limiter
 	testing.expect_value(t, ratelimit.sync_keyed_limiter_init(&k, {max_keys = -1}), err_of(ratelimit.Config_Error.Invalid_Keyed_Config))
 }
+
+@(test)
+test_keyed_prune_keeps_keys_that_are_still_limited :: proc(t: ^testing.T) {
+	track: mem.Tracking_Allocator
+	defer track_end(t, &track)
+	c: ratelimit.Manual_Clock
+	k: ratelimit.Keyed_Limiter
+	_ = ratelimit.keyed_limiter_init(
+		&k,
+		{
+			limiter = ratelimit.Token_Bucket_Config{capacity = 10, refill_amount = 1, refill_interval = time.Minute},
+			idle_timeout = SEC,
+		},
+		ratelimit.manual_clock(&c),
+		track_begin(&track),
+	)
+	defer ratelimit.keyed_limiter_destroy(&k)
+	decision, err := ratelimit.keyed_limiter_take(&k, "a", 10)
+	testing.expect_value(t, err, nil)
+	testing.expect(t, decision.allowed)
+	// The key is idle, but dropping it would hand out a fresh, full bucket.
+	ratelimit.manual_clock_advance(&c, 2 * SEC)
+	testing.expect_value(t, ratelimit.keyed_limiter_prune(&k), 0)
+	testing.expect(t, !ratelimit.keyed_limiter_allow(&k, "a"))
+	// Once the bucket is full again, removing the key changes nothing.
+	ratelimit.manual_clock_advance(&c, 10 * time.Minute)
+	testing.expect_value(t, ratelimit.keyed_limiter_prune(&k), 1)
+	testing.expect_value(t, ratelimit.keyed_limiter_len(&k), 0)
+}
+
+@(test)
+test_keyed_max_keys_does_not_evict_limited_keys :: proc(t: ^testing.T) {
+	track: mem.Tracking_Allocator
+	defer track_end(t, &track)
+	c: ratelimit.Manual_Clock
+	k: ratelimit.Keyed_Limiter
+	_ = ratelimit.keyed_limiter_init(
+		&k,
+		{
+			limiter = ratelimit.Sliding_Window_Counter_Config{limit = 2, window = time.Minute},
+			max_keys = 1,
+			idle_timeout = SEC,
+		},
+		ratelimit.manual_clock(&c),
+		track_begin(&track),
+	)
+	defer ratelimit.keyed_limiter_destroy(&k)
+	testing.expect(t, ratelimit.keyed_limiter_allow(&k, "a"))
+	testing.expect(t, ratelimit.keyed_limiter_allow(&k, "a"))
+	ratelimit.manual_clock_advance(&c, 2 * SEC)
+	_, err := ratelimit.keyed_limiter_take(&k, "b")
+	testing.expect_value(t, err, err_of(ratelimit.Take_Error.Too_Many_Keys))
+	testing.expect(t, !ratelimit.keyed_limiter_allow(&k, "a"))
+}
