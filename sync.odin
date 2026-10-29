@@ -138,3 +138,15 @@ sync_keyed_limiter_len :: proc(k: ^Sync_Keyed_Limiter) -> int {
 	sync.mutex_guard(&k.mutex)
 	return keyed_limiter_len(&k.keyed)
 }
+
+// sync_keyed_limiter_contains reports whether `key` is tracked.
+sync_keyed_limiter_contains :: proc(k: ^Sync_Keyed_Limiter, key: string) -> bool {
+	sync.mutex_guard(&k.mutex)
+	return keyed_limiter_contains(&k.keyed, key)
+}
+
+// sync_keyed_limiter_clear removes every key under the lock but keeps the configuration.
+sync_keyed_limiter_clear :: proc(k: ^Sync_Keyed_Limiter) {
+	sync.mutex_guard(&k.mutex)
+	keyed_limiter_clear(&k.keyed)
+}

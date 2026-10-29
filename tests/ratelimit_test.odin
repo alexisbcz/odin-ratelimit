@@ -905,6 +905,11 @@ test_sync_keyed_limiter_across_threads :: proc(t: ^testing.T) {
 	ratelimit.manual_clock_advance(&c, 100 * SEC)
 	testing.expect_value(t, ratelimit.sync_keyed_limiter_prune(&k), 1)
 	testing.expect_value(t, ratelimit.sync_keyed_limiter_len(&k), 0)
+	testing.expect(t, ratelimit.sync_keyed_limiter_allow(&k, "again"))
+	testing.expect(t, ratelimit.sync_keyed_limiter_contains(&k, "again"))
+	ratelimit.sync_keyed_limiter_clear(&k)
+	testing.expect(t, !ratelimit.sync_keyed_limiter_contains(&k, "again"))
+	testing.expect_value(t, ratelimit.sync_keyed_limiter_len(&k), 0)
 }
 
 @(test)
