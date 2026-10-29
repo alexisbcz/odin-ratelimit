@@ -77,3 +77,7 @@ WebAssembly
 WebSocket(s)?
 Xcode
 XCTest
+[Rr]atelimit
+[Mm]utex(es)?
+[Ii]dle
+[Pp]rune(s|d)?
