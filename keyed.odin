@@ -37,6 +37,8 @@ Keyed_Limiter :: struct {
 	clock:     Clock,
 	entries:   map[string]Keyed_Entry,
 	allocator: runtime.Allocator,
+	// No key can be pruned before this time, so a full limiter skips the scan.
+	next_prune: time.Duration,
 }
 
 /*
@@ -78,8 +80,9 @@ keyed_limiter_init :: proc(
 	k^ = Keyed_Limiter {
 		config    = config,
 		clock     = clock,
-		entries   = make(map[string]Keyed_Entry, allocator),
-		allocator = allocator,
+		entries    = make(map[string]Keyed_Entry, allocator),
+		allocator  = allocator,
+		next_prune = time.Duration(min(i64)),
 	}
 	return nil
 }
@@ -119,16 +122,20 @@ keyed_limiter_take :: proc(k: ^Keyed_Limiter, key: string, cost := 1) -> (decisi
 	entry, found := &k.entries[key]
 	if !found {
 		if k.config.max_keys > 0 && len(k.entries) >= k.config.max_keys {
-			keyed_limiter_prune(k)
+			if k.config.idle_timeout > 0 && now >= k.next_prune {
+				keyed_limiter_prune(k)
+			}
 			if len(k.entries) >= k.config.max_keys {
 				return {}, .Too_Many_Keys
 			}
 		}
 		entry = keyed_limiter_insert(k, key) or_return
+		// A new key cannot go stale before `now + idle_timeout`.
+		k.next_prune = min(k.next_prune, saturating_add(now, k.config.idle_timeout))
 	}
 	entry.last_used = now
 	decision = limiter_take(&entry.limiter, cost) or_return
-	entry.reset_at = time.Duration(min(i128(now) + i128(decision.reset_after), i128(max(i64))))
+	entry.reset_at = saturating_add(now, decision.reset_after)
 	return
 }
 
@@ -181,6 +188,7 @@ keyed_limiter_prune :: proc(k: ^Keyed_Limiter) -> (removed: int) {
 		return 0
 	}
 	now := clock_now(k.clock)
+	next_prune := time.Duration(max(i64))
 	// Deleting while iterating a map is unsafe, so collect stale keys in
 	// fixed batches. This keeps pruning allocation free.
 	for {
@@ -193,6 +201,8 @@ keyed_limiter_prune :: proc(k: ^Keyed_Limiter) -> (removed: int) {
 				if n == len(stale) {
 					break
 				}
+			} else {
+				next_prune = min(next_prune, keyed_entry_stale_at(entry, k.config.idle_timeout))
 			}
 		}
 		for key in stale[:n] {
@@ -200,6 +210,7 @@ keyed_limiter_prune :: proc(k: ^Keyed_Limiter) -> (removed: int) {
 		}
 		removed += n
 		if n < len(stale) {
+			k.next_prune = next_prune
 			return
 		}
 	}
@@ -209,6 +220,18 @@ keyed_limiter_prune :: proc(k: ^Keyed_Limiter) -> (removed: int) {
 @(private = "file")
 keyed_entry_is_stale :: proc(entry: Keyed_Entry, now, idle_timeout: time.Duration) -> bool {
 	return i128(now) - i128(entry.last_used) >= i128(idle_timeout) && now >= entry.reset_at
+}
+
+// keyed_entry_stale_at returns the earliest time `entry` can be pruned if it stays unused.
+@(private = "file")
+keyed_entry_stale_at :: proc(entry: Keyed_Entry, idle_timeout: time.Duration) -> time.Duration {
+	return max(saturating_add(entry.last_used, idle_timeout), entry.reset_at)
+}
+
+// saturating_add returns `t + d` for a non-negative `d`, clamped to the largest Duration.
+@(private = "file")
+saturating_add :: proc(t, d: time.Duration) -> time.Duration {
+	return time.Duration(min(i128(t) + i128(d), i128(max(i64))))
 }
 
 // keyed_limiter_len returns how many keys `k` tracks.
@@ -228,6 +251,7 @@ keyed_limiter_clear :: proc(k: ^Keyed_Limiter) {
 		delete(key, k.allocator)
 	}
 	clear(&k.entries)
+	k.next_prune = time.Duration(min(i64))
 }
 
 @(private = "file")

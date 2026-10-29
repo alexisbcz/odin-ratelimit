@@ -1035,3 +1035,44 @@ test_retry_after_is_tight_for_every_algorithm :: proc(t: ^testing.T) {
 	check_retry_after_is_tight(t, ratelimit.Sliding_Window_Log_Config{limit = 6, window = 1300 * MS}, 6, 3)
 	check_retry_after_is_tight(t, ratelimit.Sliding_Window_Counter_Config{limit = 7, window = 1100 * MS}, 7, 4)
 }
+
+@(test)
+test_keyed_full_limiter_admits_new_key_once_one_goes_stale :: proc(t: ^testing.T) {
+	track: mem.Tracking_Allocator
+	defer track_end(t, &track)
+	c: ratelimit.Manual_Clock
+	k: ratelimit.Keyed_Limiter
+	_ = ratelimit.keyed_limiter_init(
+		&k,
+		{
+			limiter = ratelimit.Leaky_Bucket_Config{capacity = 4, leak_amount = 1, leak_interval = SEC},
+			max_keys = 2,
+			idle_timeout = 2 * SEC,
+		},
+		ratelimit.manual_clock(&c),
+		track_begin(&track),
+	)
+	defer ratelimit.keyed_limiter_destroy(&k)
+	_, _ = ratelimit.keyed_limiter_take(&k, "a", 4) // drained at 4s
+	ratelimit.manual_clock_advance(&c, SEC)
+	_, _ = ratelimit.keyed_limiter_take(&k, "b", 1) // idle at 3s, drained at 2s
+	ratelimit.manual_clock_advance(&c, SEC)
+	_, err := ratelimit.keyed_limiter_take(&k, "c")
+	testing.expect_value(t, err, err_of(ratelimit.Take_Error.Too_Many_Keys))
+	// Repeated refusals before any key can go stale must not hide one that has.
+	ratelimit.manual_clock_set(&c, 3 * SEC - 1)
+	_, err = ratelimit.keyed_limiter_take(&k, "c")
+	testing.expect_value(t, err, err_of(ratelimit.Take_Error.Too_Many_Keys))
+	ratelimit.manual_clock_set(&c, 3 * SEC)
+	_, err = ratelimit.keyed_limiter_take(&k, "c")
+	testing.expect_value(t, err, nil)
+	testing.expect(t, ratelimit.keyed_limiter_contains(&k, "a"))
+	testing.expect(t, !ratelimit.keyed_limiter_contains(&k, "b"))
+	// After a clear, pruning starts from scratch.
+	ratelimit.keyed_limiter_clear(&k)
+	testing.expect(t, ratelimit.keyed_limiter_allow(&k, "x"))
+	testing.expect(t, ratelimit.keyed_limiter_allow(&k, "y"))
+	ratelimit.manual_clock_advance(&c, 10 * SEC)
+	_, err = ratelimit.keyed_limiter_take(&k, "z")
+	testing.expect_value(t, err, nil)
+}
