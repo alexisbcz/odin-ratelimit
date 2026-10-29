@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-29
+
+### Added
+
+- `sync_keyed_limiter_contains` and `sync_keyed_limiter_clear`, so shared users need not bypass the lock.
+
+### Fixed
+
+- `Keyed_Limiter` pruning, by hand or at `max_keys`, no longer removes a key whose limiter is still holding back requests. Before, a client could get a fresh limit by staying idle for `idle_timeout`.
+- A `Keyed_Limiter` at `max_keys` no longer scans every key for each request with an unknown key. It skips the scan until a key can go stale.
+
 ## [0.1.0] - 2026-10-29
 
 ### Added
@@ -21,5 +32,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A replaceable `Clock`, plus `Manual_Clock` for deterministic tests.
 - `Config_Error`, `Take_Error` and the compound `Error` union.
 
-[Unreleased]: https://github.com/alexisbcz/odin-ratelimit/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/alexisbcz/odin-ratelimit/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/alexisbcz/odin-ratelimit/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alexisbcz/odin-ratelimit/releases/tag/v0.1.0
