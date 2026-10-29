@@ -969,3 +969,69 @@ test_keyed_max_keys_does_not_evict_limited_keys :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, err_of(ratelimit.Take_Error.Too_Many_Keys))
 	testing.expect(t, !ratelimit.keyed_limiter_allow(&k, "a"))
 }
+
+// check_retry_after_is_tight drives `l` with random costs and gaps, and checks
+// every denial: one nanosecond before retry_after the request still fails, and
+// at retry_after it succeeds.
+check_retry_after_is_tight :: proc(t: ^testing.T, config: ratelimit.Limiter_Config, capacity: int, seed: u64) {
+	c: ratelimit.Manual_Clock
+	state := seed
+	denied := 0
+	next :: proc(s: ^u64, n: int) -> int {
+		s^ = s^ * 6364136223846793005 + 1442695040888963407
+		return int((s^ >> 33) % u64(n))
+	}
+	for round in 0 ..< 200 {
+		l: ratelimit.Limiter
+		err := ratelimit.limiter_init(&l, config, ratelimit.manual_clock(&c))
+		testing.expect_value(t, err, nil)
+		defer ratelimit.limiter_destroy(&l)
+		for step in 0 ..< 40 {
+			ratelimit.manual_clock_advance(&c, time.Duration(next(&state, 400)) * MS)
+			cost := 1 + next(&state, capacity)
+			decision, take_err := ratelimit.limiter_take(&l, cost)
+			testing.expect_value(t, take_err, nil)
+			if decision.allowed {
+				testing.expect_value(t, decision.retry_after, 0)
+				continue
+			}
+			denied += 1
+			testing.expectf(t, decision.retry_after > 0, "round %d step %d: denied with retry_after 0", round, step)
+			// Probe on a copy so the main run continues unchanged.
+			probe: ratelimit.Limiter
+			_ = ratelimit.limiter_init(&probe, config, ratelimit.manual_clock(&c))
+			defer ratelimit.limiter_destroy(&probe)
+			copy_limiter(&probe, &l)
+			start := ratelimit.manual_clock_now(&c)
+			ratelimit.manual_clock_set(&c, start + decision.retry_after - 1)
+			early, _ := ratelimit.limiter_take(&probe, cost)
+			testing.expectf(t, !early.allowed, "round %d step %d: allowed before retry_after %v", round, step, decision.retry_after)
+			copy_limiter(&probe, &l)
+			ratelimit.manual_clock_set(&c, start + decision.retry_after)
+			late, _ := ratelimit.limiter_take(&probe, cost)
+			testing.expectf(t, late.allowed, "round %d step %d: denied at retry_after %v", round, step, decision.retry_after)
+			ratelimit.manual_clock_set(&c, start)
+		}
+	}
+	testing.expectf(t, denied > 100, "only %d denials, the run is too gentle", denied)
+}
+
+// copy_limiter copies the state of `src` into `dst`, which must hold the same variant.
+copy_limiter :: proc(dst, src: ^ratelimit.Limiter) {
+	switch &s in src {
+	case ratelimit.Sliding_Window_Log:
+		d := &dst.(ratelimit.Sliding_Window_Log)
+		copy(d.entries, s.entries)
+		d.head, d.count = s.head, s.count
+	case ratelimit.Token_Bucket, ratelimit.Leaky_Bucket, ratelimit.Sliding_Window_Counter:
+		dst^ = src^
+	}
+}
+
+@(test)
+test_retry_after_is_tight_for_every_algorithm :: proc(t: ^testing.T) {
+	check_retry_after_is_tight(t, ratelimit.Token_Bucket_Config{capacity = 5, refill_amount = 3, refill_interval = 700 * MS}, 5, 1)
+	check_retry_after_is_tight(t, ratelimit.Leaky_Bucket_Config{capacity = 5, leak_amount = 2, leak_interval = 900 * MS}, 5, 2)
+	check_retry_after_is_tight(t, ratelimit.Sliding_Window_Log_Config{limit = 6, window = 1300 * MS}, 6, 3)
+	check_retry_after_is_tight(t, ratelimit.Sliding_Window_Counter_Config{limit = 7, window = 1100 * MS}, 7, 4)
+}
