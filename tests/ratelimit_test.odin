@@ -899,7 +899,10 @@ test_sync_keyed_limiter_across_threads :: proc(t: ^testing.T) {
 	_, take_err := ratelimit.sync_keyed_limiter_take(&k, "odd")
 	testing.expect_value(t, take_err, nil)
 	testing.expect(t, ratelimit.sync_keyed_limiter_remove(&k, "odd"))
+	// "even" is idle but still empty, so pruning keeps it until it refills.
 	ratelimit.manual_clock_advance(&c, SEC)
+	testing.expect_value(t, ratelimit.sync_keyed_limiter_prune(&k), 0)
+	ratelimit.manual_clock_advance(&c, 100 * SEC)
 	testing.expect_value(t, ratelimit.sync_keyed_limiter_prune(&k), 1)
 	testing.expect_value(t, ratelimit.sync_keyed_limiter_len(&k), 0)
 }

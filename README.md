@@ -131,7 +131,7 @@ To plug in another time source, build a `Clock` with your own `Clock_Proc` and d
 | `*_reset(x)` | Return a limiter to its starting state | No | Not needed |
 | `limiter_init(l, config, clock, allocator)` | Build any algorithm from a `Limiter_Config` | Only for a log | `limiter_destroy` |
 | `keyed_limiter_init(k, config, clock, allocator)` | One limiter per key, created on first use | Yes | `keyed_limiter_destroy` |
-| `keyed_limiter_prune(k)` | Drop keys idle for `idle_timeout` | No | Not needed |
+| `keyed_limiter_prune(k)` | Drop keys idle for `idle_timeout` whose limiter is fully available again | No | Not needed |
 | `sync_limiter_init`, `sync_keyed_limiter_init` | Mutex-guarded versions for shared use | Like the inner limiter | `sync_*_destroy` |
 | `Manual_Clock`, `manual_clock(c)` | A clock that only moves when you move it | No | Not needed |
 | `Error` | Union of `Config_Error`, `Take_Error` and `runtime.Allocator_Error` | No | Not needed |
@@ -149,7 +149,7 @@ odin run examples/basic
 - All arithmetic uses integer nanoseconds widened to `i128`, so refills are exact and `retry_after` is never off by a rounding error.
 - A malformed request, such as a cost of 0 or a cost larger than the limit, returns a `Take_Error`. A request that is only over the limit returns `allowed = false` with no error.
 - A clock that moves backwards never grants extra capacity.
-- `Keyed_Limiter` copies keys, so you can free a key right after the call. When it reaches `max_keys`, it prunes idle keys and returns `.Too_Many_Keys` if that frees no room.
+- `Keyed_Limiter` copies keys, so you can free a key right after the call. When it reaches `max_keys`, it prunes idle keys and returns `.Too_Many_Keys` if that frees no room. Pruning skips a key whose limiter is still holding back requests, so dropping a key never resets a client's limit early.
 - Plain limiters are safe to use from one thread at a time. The `Sync_` wrappers hold a `sync.Mutex` for each call. `Manual_Clock` uses atomics, so tests may advance it from any thread.
 - The package keeps no global state and starts no threads.
 

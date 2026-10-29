@@ -11,7 +11,9 @@ Fields:
 - limiter: the configuration every per-key limiter is built from.
 - max_keys: the most keys tracked at once; 0 means no limit.
 - idle_timeout: how long a key may go unused before keyed_limiter_prune
-  removes it; 0 means keys are only removed by hand.
+  removes it; 0 means keys are only removed by hand. A key is never pruned
+  while its limiter still holds back requests, because a fresh limiter would
+  forget that state and grant more than the limit.
 */
 Keyed_Config :: struct {
 	limiter:      Limiter_Config,
@@ -37,10 +39,14 @@ Keyed_Limiter :: struct {
 	allocator: runtime.Allocator,
 }
 
-// Keyed_Entry is one key's limiter and the last time the key was used.
+/*
+Keyed_Entry is one key's limiter, the last time the key was used, and the
+time at which its limiter is back to its starting state.
+*/
 Keyed_Entry :: struct {
 	limiter:   Limiter,
 	last_used: time.Duration,
+	reset_at:  time.Duration,
 }
 
 // keyed_config_validate reports whether `config` describes a usable keyed limiter.
@@ -121,7 +127,9 @@ keyed_limiter_take :: proc(k: ^Keyed_Limiter, key: string, cost := 1) -> (decisi
 		entry = keyed_limiter_insert(k, key) or_return
 	}
 	entry.last_used = now
-	return limiter_take(&entry.limiter, cost)
+	decision = limiter_take(&entry.limiter, cost) or_return
+	entry.reset_at = time.Duration(min(i128(now) + i128(decision.reset_after), i128(max(i64))))
+	return
 }
 
 // keyed_limiter_allow asks the limiter for `key` for one unit and reports whether it was granted.
@@ -164,8 +172,9 @@ keyed_limiter_remove :: proc(k: ^Keyed_Limiter, key: string) -> bool {
 
 /*
 keyed_limiter_prune removes every key that has gone unused for at least
-`idle_timeout` and returns how many it removed. It does nothing when
-`idle_timeout` is 0. Its cost grows with the number of keys.
+`idle_timeout` and whose limiter is back to its starting state, then returns
+how many it removed. Removing such a key never changes a later decision. It
+does nothing when `idle_timeout` is 0. Its cost grows with the number of keys.
 */
 keyed_limiter_prune :: proc(k: ^Keyed_Limiter) -> (removed: int) {
 	if k.config.idle_timeout <= 0 || len(k.entries) == 0 {
@@ -178,7 +187,7 @@ keyed_limiter_prune :: proc(k: ^Keyed_Limiter) -> (removed: int) {
 		stale: [64]string
 		n := 0
 		for key, entry in k.entries {
-			if now - entry.last_used >= k.config.idle_timeout {
+			if keyed_entry_is_stale(entry, now, k.config.idle_timeout) {
 				stale[n] = key
 				n += 1
 				if n == len(stale) {
@@ -194,6 +203,12 @@ keyed_limiter_prune :: proc(k: ^Keyed_Limiter) -> (removed: int) {
 			return
 		}
 	}
+}
+
+// keyed_entry_is_stale reports whether removing `entry` at `now` is safe.
+@(private = "file")
+keyed_entry_is_stale :: proc(entry: Keyed_Entry, now, idle_timeout: time.Duration) -> bool {
+	return i128(now) - i128(entry.last_used) >= i128(idle_timeout) && now >= entry.reset_at
 }
 
 // keyed_limiter_len returns how many keys `k` tracks.
