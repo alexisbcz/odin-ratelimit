@@ -1,0 +1,74 @@
+# CI for alexisbcz Odin libraries. Copy as-is; nothing here is library specific.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Bump in one place when the house compiler moves.
+  ODIN_RELEASE: dev-2026-09
+  VALE_VERSION: 3.22.0
+
+jobs:
+  odin:
+    name: Odin (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Odin
+        uses: laytan/setup-odin@v2.12.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: ${{ env.ODIN_RELEASE }}
+
+      - name: Show Odin version
+        run: odin version
+
+      - name: Check package
+        run: odin check . -vet -strict-style -disallow-do -no-entry-point
+
+      - name: Run tests
+        run: odin test tests -vet -strict-style -disallow-do -define:ODIN_TEST_THREADS=2
+
+      - name: Build examples
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for dir in examples/*/; do
+            echo "::group::$dir"
+            odin build "$dir" -vet -strict-style -disallow-do -out:"${RUNNER_TEMP}/example"
+            echo "::endgroup::"
+          done
+
+  docs:
+    name: Vale
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Vale
+        run: |
+          curl -fsSL "https://github.com/vale-cli/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" \
+            | tar -xz -C "${RUNNER_TEMP}" vale
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Download Vale packages
+        run: vale sync
+
+      - name: Lint Markdown
+        run: vale --minAlertLevel=error $(git ls-files '*.md')
